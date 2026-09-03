@@ -27,6 +27,13 @@ class PublicPackageTests(unittest.TestCase):
     def test_opening_video_is_packaged(self) -> None:
         self.assertTrue(DEFAULT_OPENING_PATH.is_file())
 
+    def test_mobile_settings_use_the_full_viewport(self) -> None:
+        html = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
+        css = (ROOT / "app" / "static" / "style.css").read_text(encoding="utf-8")
+        self.assertIn('<body class="is-start-screen">', html)
+        self.assertIn("body.is-start-screen .scene-frame", css)
+        self.assertIn("height: 100dvh", css)
+
     def test_release_tree_has_no_generic_local_data(self) -> None:
         self.assertEqual(audit(ROOT, []), [])
 
