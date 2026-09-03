@@ -6,6 +6,36 @@
 
 このリポジトリは完成品ではなく、会話ゲームへ改造するための最小構成です。モデル本体、会話履歴、個別に作った設定、生成動画、生成ログは同梱していません。
 
+## 最初に：利用モードごとの設定
+
+`run_full.bat` を実行するだけで、LM StudioやFastH3自体が自動導入されるわけではありません。デモ以外を使う場合は、先に外部アプリとモデルを用意してください。
+
+| 利用したい機能 | 事前に必要な設定 |
+|---|---|
+| UIと固定会話だけ試す | 追加設定なし。`run_demo.bat` または `run_demo.sh` を実行 |
+| AIによる会話と二択 | LM Studioへチャットモデルをロードし、Local Serverを開始 |
+| AI会話 + FastH3動画 | 上記のLM Studio設定に加え、FastH3対応ComfyUI、モデル4点、必要ノードを用意 |
+
+初回は次の順で確認すると、問題の場所を切り分けやすくなります。
+
+1. デモモードで画面が開くことを確認します。
+2. LM Studioを起動し、開始画面の「接続を確認」で会話APIを確認します。
+3. ComfyUIを起動し、開始画面で映像を「FastH3」にして接続先を確認します。
+4. 必要なモデル名が既定値と異なる場合は、後述の環境変数を設定してサーバーを起動し直します。
+
+FastH3動画で既定値として探すモデルファイルは次の4点です。
+
+```text
+minimax_h3_fastvideo_vsa_datafree_1300step_4step_int8_convrot.safetensors
+qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
+minimax_h3_video_vae_fp16.safetensors
+minimax_h3_audio_vae_fp32.safetensors
+```
+
+ファイル名が異なる場合は、`FASTH3_MODEL`、`FASTH3_TEXT_ENCODER`、`FASTH3_VIDEO_VAE`、`FASTH3_AUDIO_VAE` で実際の名前を指定してください。標準構成では `MiniMaxH3ImageToVideo`、`MiniMaxH3SigmaShift`、`VAEDecodeAudio` などの対応ノードを使い、高速化が有効な場合は `SolAttnMiniMax` も使います。
+
+開始画面で指定するLM StudioとComfyUIの接続先はブラウザに保存されます。モデルファイル名などの詳細値は、現在の版では画面設定ではなくサーバー起動時の環境変数で指定します。
+
 ## 主な機能
 
 - 動画の上へ大きく表示される二択UI
