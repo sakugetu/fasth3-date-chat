@@ -34,6 +34,13 @@ class PublicPackageTests(unittest.TestCase):
         self.assertIn("body.is-start-screen .scene-frame", css)
         self.assertIn("height: 100dvh", css)
 
+    def test_settings_width_is_constrained_by_the_scene_frame(self) -> None:
+        html = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
+        css = (ROOT / "app" / "static" / "style.css").read_text(encoding="utf-8")
+        self.assertIn("width: min(980px, 100%);", css)
+        self.assertNotIn("width: min(980px, 96vw);", css)
+        self.assertIn("/style.css?v=public-4", html)
+
     def test_release_tree_has_no_generic_local_data(self) -> None:
         self.assertEqual(audit(ROOT, []), [])
 

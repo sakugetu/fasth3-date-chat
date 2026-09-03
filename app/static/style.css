@@ -121,7 +121,7 @@ button { cursor: pointer; }
   backdrop-filter: blur(10px);
 }
 .settings-panel {
-  width: min(980px, 96vw);
+  width: min(980px, 100%);
   max-height: min(940px, 100%);
   min-height: 0;
   display: grid;
@@ -147,7 +147,7 @@ button { cursor: pointer; }
   min-height: 0;
   padding: 18px 22px 24px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
   align-items: start;
   gap: 15px;
   overflow-y: auto;
