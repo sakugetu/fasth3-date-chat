@@ -14,14 +14,15 @@
 |---|---|
 | UIと固定会話だけ試す | 追加設定なし。`run_demo.bat` または `run_demo.sh` を実行 |
 | AIによる会話と二択 | LM Studioへチャットモデルをロードし、Local Serverを開始 |
-| AI会話 + FastH3動画 | 上記のLM Studio設定に加え、FastH3対応ComfyUI、モデル4点、必要ノードを用意 |
+| AI会話 + FastH3動画 | 上記のLM Studio設定に加え、FastH3対応ComfyUI、モデル4点、必要ノード、キャラクター参照画像を用意 |
 
 初回は次の順で確認すると、問題の場所を切り分けやすくなります。
 
 1. デモモードで画面が開くことを確認します。
 2. LM Studioを起動し、開始画面の「接続を確認」で会話APIを確認します。
 3. ComfyUIを起動し、開始画面で映像を「FastH3」にして接続先を確認します。
-4. 必要なモデル名が既定値と異なる場合は、後述の環境変数を設定してサーバーを起動し直します。
+4. キャラクター参照画像を選び、通常は「Omni（人物を保つ）」を選びます。
+5. 必要なモデル名が既定値と異なる場合は、後述の環境変数を設定してサーバーを起動し直します。
 
 FastH3動画で既定値として探すモデルファイルは次の4点です。
 
@@ -32,7 +33,7 @@ minimax_h3_video_vae_fp16.safetensors
 minimax_h3_audio_vae_fp32.safetensors
 ```
 
-ファイル名が異なる場合は、`FASTH3_MODEL`、`FASTH3_TEXT_ENCODER`、`FASTH3_VIDEO_VAE`、`FASTH3_AUDIO_VAE` で実際の名前を指定してください。標準構成では `MiniMaxH3ImageToVideo`、`MiniMaxH3SigmaShift`、`VAEDecodeAudio` などの対応ノードを使い、高速化が有効な場合は `SolAttnMiniMax` も使います。
+ファイル名が異なる場合は、`FASTH3_MODEL`、`FASTH3_TEXT_ENCODER`、`FASTH3_VIDEO_VAE`、`FASTH3_AUDIO_VAE` で実際の名前を指定してください。標準構成では、人物参照に `MiniMaxH3ReferenceToVideo`、先頭フレーム参照に `MiniMaxH3ImageToVideo` を使います。そのほか `MiniMaxH3SigmaShift`、`VAEDecodeAudio` を使い、高速化が有効な場合は `SolAttnMiniMax` も使います。
 
 開始画面で指定するLM StudioとComfyUIの接続先はブラウザに保存されます。モデルファイル名などの詳細値は、現在の版では画面設定ではなくサーバー起動時の環境変数で指定します。
 
@@ -41,6 +42,7 @@ minimax_h3_audio_vae_fp32.safetensors
 - 動画の上へ大きく表示される二択UI
 - LM Studioによる日本語の返答と次の選択肢の生成
 - FastH3対応ComfyUIによる短い音声付き動画の生成
+- 一枚の参照画像を全ターンへ渡すOmniReference／First-frame構成
 - デモ、LM Studioのみ、LM Studio + FastH3の3段階で起動可能
 - 5種類の既定シチュエーションと、それぞれの会話ゴール
 - 日本語の説明からキャラクターとシチュエーションを生成
@@ -119,7 +121,16 @@ Windowsでは `run_full.bat`、macOS/Linuxでは `sh run_full.sh` を実行し�
 python -m app.server --provider lmstudio --video-mode fasth3
 ```
 
-開始画面で映像を「FastH3」にするとComfyUI接続先が表示されます。標準値は `http://127.0.0.1:8002` です。
+開始画面で映像を「FastH3」にすると、ComfyUI接続先、キャラクター参照画像、参照方法が表示されます。標準値は `http://127.0.0.1:8002` です。
+
+参照画像には、会話中に出したい人物の顔、髪型、服装がよく分かるPNG、JPEG、WebP（12MB以下）を選びます。画像はこのアプリの `data/reference_images/` にローカル保存され、Git管理には入りません。ゲーム開始時はその画像を静止画として表示し、最初の選択後から各動画へ同じ画像を渡します。
+
+参照方法は次の二つです。
+
+| 参照方法 | 用途 |
+|---|---|
+| Omni（既定） | 参照画像を人物の同一性として使い、会話場面の構図や小さな動作をプロンプトで作る |
+| FL | 参照画像そのものを動画の先頭フレームとして動かす |
 
 別の接続先を使う場合は、画面で入力するか環境変数を指定します。
 
@@ -158,11 +169,10 @@ python -m app.server --provider lmstudio --video-mode fasth3
 
 ## FastH3の人物・声の一貫性
 
-固定外見プロンプトと固定seedは、動画ごとの顔、衣装、画風の揺れを減らすために使います。ただし、現在のText-to-Video構成だけでは、同一人物や同一の声を完全には保証できません。
+選択した一枚の画像を全ターンへ渡し、固定外見プロンプトと固定seedも併用します。通常はOmniを選ぶと、画像を人物の基準にしながら、そのターンの表情や小さな動作を作れます。FLは元画像の構図から直接動かしたい場合に向きます。
 
-より強い一貫性が必要な場合は、用途に応じて次のような構成へ差し替えてください。
+生成モデルの性質上、参照画像を使っても顔、衣装、画風が完全に一致する保証はありません。また、この構成では声質を固定する専用話者参照は使っていません。より強い一貫性が必要な場合は、用途に応じて次の構成も検討してください。
 
-- 参照画像対応の動画ワークフロー
 - キャラクター専用LoRA
 - 外部TTSとリップシンク
 - 生成済み動画を使う固定分岐シナリオ
@@ -184,6 +194,8 @@ python -m app.server --provider lmstudio --video-mode fasth3
 | `FASTH3_TEXT_ENCODER` | ソース内の既定値 | テキストエンコーダー名 |
 | `FASTH3_VIDEO_VAE` | ソース内の既定値 | Video VAE名 |
 | `FASTH3_AUDIO_VAE` | ソース内の既定値 | Audio VAE名 |
+| `FASTH3_REFERENCE_MODE` | `omni` | 既定の参照方法（`omni` または `first_frame`） |
+| `FASTH3_REF_IMAGE_SIZE` | `match` | Omniの参照画像サイズ方針（`match` または `max`） |
 | `FASTH3_USE_SOL_ATTN` | `1` | 高速Attentionノードの使用 |
 | `DATE_CHAT_DATA_ROOT` | `data` | 会話履歴と保存設定の格納先 |
 | `DATE_CHAT_WORK_ROOT` | `work` | 動画生成の一時作業先 |

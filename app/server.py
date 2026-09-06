@@ -4,7 +4,9 @@ import argparse
 import json
 import mimetypes
 import os
+import re
 import sys
+import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -46,10 +48,13 @@ DATA_ROOT = Path(os.environ.get("DATE_CHAT_DATA_ROOT", str(PROJECT_ROOT / "data"
 SESSIONS_ROOT = DATA_ROOT / "sessions"
 CHARACTERS_ROOT = DATA_ROOT / "characters"
 SCENARIOS_ROOT = DATA_ROOT / "scenarios"
+REFERENCE_IMAGES_ROOT = DATA_ROOT / "reference_images"
 WORK_ROOT = Path(os.environ.get("DATE_CHAT_WORK_ROOT", str(PROJECT_ROOT / "work"))).expanduser().resolve()
 DEFAULT_CHARACTER_PATH = PROJECT_ROOT / "config" / "character.example.json"
 DEFAULT_OPENING_PATH = MEDIA_ROOT / "opening.mp4"
 DEFAULT_LM_STUDIO_URL = "http://127.0.0.1:1234/v1"
+MAX_REFERENCE_IMAGE_BYTES = 12 * 1024 * 1024
+REFERENCE_IMAGE_EXTENSIONS = (".png", ".jpg", ".webp")
 
 
 def clean_url(value: Any, default: str) -> str:
@@ -77,11 +82,45 @@ def normalize_runtime(raw: dict[str, Any], defaults: dict[str, Any]) -> dict[str
     video_mode = str(video_raw.get("mode") or defaults["video"]["mode"])
     if video_mode not in {"none", "fasth3"}:
         raise ValueError("映像モードが正しくありません")
+    reference_mode = str(video_raw.get("reference_mode") or defaults["video"].get("reference_mode") or "omni")
+    if reference_mode not in {"omni", "first_frame"}:
+        raise ValueError("参照方式が正しくありません")
+    reference_image_id = video_raw.get("reference_image_id")
+    if reference_image_id in {None, ""}:
+        reference_image_id = None
+    elif not isinstance(reference_image_id, str) or not re.fullmatch(r"[0-9a-f]{32}", reference_image_id):
+        raise ValueError("参照画像IDが正しくありません")
+    ref_image_size = str(video_raw.get("ref_image_size") or defaults["video"].get("ref_image_size") or "match")
+    if ref_image_size not in {"match", "max"}:
+        raise ValueError("参照画像サイズ設定が正しくありません")
     video = {
         "mode": video_mode,
         "base_url": clean_url(video_raw.get("base_url"), defaults["video"]["base_url"]),
+        "reference_mode": reference_mode,
+        "reference_image_id": reference_image_id,
+        "ref_image_size": ref_image_size,
     }
     return {"provider": provider, "video": video}
+
+
+def reference_image_path(reference_id: str) -> Path:
+    if not re.fullmatch(r"[0-9a-f]{32}", str(reference_id or "")):
+        raise ValueError("参照画像IDが正しくありません")
+    for extension in REFERENCE_IMAGE_EXTENSIONS:
+        candidate = REFERENCE_IMAGES_ROOT / f"{reference_id}{extension}"
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(reference_id)
+
+
+def reference_image_extension(content: bytes) -> str:
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return ".webp"
+    raise ValueError("参照画像はPNG、JPEG、WebPのいずれかを選んでください")
 
 
 def provider_from_runtime(runtime: dict[str, Any]) -> DemoProvider | LMStudioProvider:
@@ -136,6 +175,15 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(value, dict):
             raise ValueError("Request JSON root must be an object")
         return value
+
+    def _read_reference_image(self) -> bytes:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as exc:
+            raise ValueError("Invalid Content-Length") from exc
+        if length <= 0 or length > MAX_REFERENCE_IMAGE_BYTES:
+            raise ValueError("参照画像は12MB以下にしてください")
+        return self.rfile.read(length)
 
     def _serve_file(self, root: Path, relative: str) -> None:
         candidate = (root / unquote(relative)).resolve()
@@ -218,6 +266,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/settings":
             self._send_json(self._settings_payload())
             return
+        if path.startswith("/api/reference-images/"):
+            reference_id = path.removeprefix("/api/reference-images/")
+            try:
+                self._serve_file(REFERENCE_IMAGES_ROOT, reference_image_path(reference_id).name)
+            except (FileNotFoundError, ValueError):
+                self._send_json({"error": "reference image not found"}, HTTPStatus.NOT_FOUND)
+            return
         if path.startswith("/media/"):
             self._serve_file(MEDIA_ROOT, path.removeprefix("/media/"))
             return
@@ -266,15 +321,35 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urlparse(self.path).path
         try:
+            if path == "/api/reference-images":
+                content = self._read_reference_image()
+                extension = reference_image_extension(content)
+                reference_id = uuid.uuid4().hex
+                REFERENCE_IMAGES_ROOT.mkdir(parents=True, exist_ok=True)
+                output = REFERENCE_IMAGES_ROOT / f"{reference_id}{extension}"
+                temporary = output.with_suffix(extension + ".tmp")
+                temporary.write_bytes(content)
+                os.replace(temporary, output)
+                self._send_json({
+                    "id": reference_id,
+                    "url": f"/api/reference-images/{reference_id}",
+                }, HTTPStatus.CREATED)
+                return
             if path == "/api/sessions":
                 body = self._read_json()
                 runtime = normalize_runtime(body, self.server.defaults)  # type: ignore[attr-defined]
+                if runtime["video"]["mode"] == "fasth3":
+                    reference_id = runtime["video"].get("reference_image_id")
+                    if not reference_id:
+                        raise ValueError("FastH3を使うにはキャラクターの参照画像を選んでください")
+                    reference_image_path(reference_id)
                 character = self._character(body.get("character_id"))
                 scenario = self._scenario(body.get("scenario_id"))
                 session = self.service.new_session(character, scenario, runtime)
                 session["opening_video_url"] = (
                     "/media/opening.mp4"
-                    if character.get("profile_id") == "default"
+                    if runtime["video"]["mode"] != "fasth3"
+                    and character.get("profile_id") == "default"
                     and scenario.get("id") == "night_chat"
                     and self.server.opening_path.is_file()  # type: ignore[attr-defined]
                     else None
@@ -292,7 +367,8 @@ class Handler(BaseHTTPRequestHandler):
                     status = provider_from_runtime(runtime).status()
                 elif kind == "fasth3":
                     url = clean_url(body.get("base_url"), self.server.defaults["video"]["base_url"])  # type: ignore[attr-defined]
-                    status = FastH3VideoGenerator(MEDIA_ROOT, WORK_ROOT, base_url=url).status()
+                    reference_mode = str(body.get("reference_mode") or "omni")
+                    status = FastH3VideoGenerator(MEDIA_ROOT, WORK_ROOT, base_url=url).status(reference_mode)
                 else:
                     raise ValueError("確認する接続先を選んでください")
                 self._send_json(status, HTTPStatus.OK if status.get("ok") else HTTPStatus.BAD_GATEWAY)
@@ -332,6 +408,9 @@ class Handler(BaseHTTPRequestHandler):
                         character=session["character"],
                         dialogue=assistant_message["content"],
                         moment=visual_moment.get("summary"),
+                        reference_path=reference_image_path(runtime["video"]["reference_image_id"]),
+                        reference_mode=runtime["video"]["reference_mode"],
+                        ref_image_size=runtime["video"]["ref_image_size"],
                     )
                     visual_moment.update(video)
                     visual_moment["requested"] = True
@@ -395,6 +474,9 @@ def main() -> None:
         "video": {
             "mode": args.video_mode,
             "base_url": os.environ.get("FASTH3_BASE_URL", DEFAULT_BASE_URL),
+            "reference_mode": os.environ.get("FASTH3_REFERENCE_MODE", "omni"),
+            "reference_image_id": None,
+            "ref_image_size": os.environ.get("FASTH3_REF_IMAGE_SIZE", "match"),
         },
         "character_id": "default",
         "scenario_id": "night_chat",

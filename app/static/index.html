@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23120f18'/%3E%3Ccircle cx='32' cy='32' r='13' fill='%23d982a6'/%3E%3C/svg%3E">
   <title>あとから届く</title>
-  <link rel="stylesheet" href="/style.css?v=public-4">
+  <link rel="stylesheet" href="/style.css?v=public-5">
 </head>
 <body class="is-start-screen">
   <main class="app-shell">
@@ -101,7 +101,28 @@
               <div id="h3Settings" class="connection-fields is-hidden">
                 <label>ComfyUI接続先<input id="h3BaseUrl" type="url" value="http://127.0.0.1:8002" spellcheck="false"></label>
                 <button id="testH3Button" class="sub-button" type="button">接続を確認</button>
-                <small>各返答のあと、320×320・約3秒の生成を待ちます。</small>
+                <div class="reference-settings">
+                  <div class="reference-copy">
+                    <strong>キャラクター参照画像</strong>
+                    <small>この一枚をすべての返答で使い、人物・髪型・服装を揃えます。</small>
+                  </div>
+                  <div class="reference-picker">
+                    <label class="reference-upload">画像を選ぶ<input id="referenceImageInput" type="file" accept="image/png,image/jpeg,image/webp"></label>
+                    <button id="clearReferenceButton" class="sub-button is-hidden" type="button">解除</button>
+                  </div>
+                  <div id="referencePreview" class="reference-preview is-empty">
+                    <img id="referencePreviewImage" class="is-hidden" alt="選択したキャラクター参照画像">
+                    <span id="referencePreviewText">PNG / JPEG / WebP・12MB以下</span>
+                  </div>
+                  <div class="reference-method">
+                    <span>参照方法</span>
+                    <div class="segmented">
+                      <label><input type="radio" name="referenceMode" value="omni" checked><span>Omni（人物を保つ）</span></label>
+                      <label><input type="radio" name="referenceMode" value="first_frame"><span>FL（この絵から動かす）</span></label>
+                    </div>
+                  </div>
+                </div>
+                <small>各返答のあと、320×320・約3秒の4-step生成を待ちます。Omniでは参照画像を人物の基準として使います。</small>
               </div>
             </section>
           </div>
@@ -170,6 +191,6 @@
     </section>
     <footer class="footer-line"><span>低解像度で生成して、大きく映す</span><span id="sceneStatus">設定を待っています</span></footer>
   </main>
-  <script src="/app.js?v=public-2" defer></script>
+  <script src="/app.js?v=public-3" defer></script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import re
 import time
@@ -28,9 +29,15 @@ HEIGHT = 320
 FRAMES = 72
 FPS = 24.0
 DEFAULT_CHARACTER_SEED = 986429173
+REFERENCE_MODES = {"omni", "first_frame"}
 
 
-def build_video_prompt(character: dict[str, Any], dialogue: str, moment: str | None) -> str:
+def build_video_prompt(
+    character: dict[str, Any],
+    dialogue: str,
+    moment: str | None,
+    reference_mode: str = "none",
+) -> str:
     name = str(character.get("name") or "Mio")
     anchor = str(
         character.get("visual_prompt")
@@ -39,9 +46,17 @@ def build_video_prompt(character: dict[str, Any], dialogue: str, moment: str | N
     )
     scene = str(moment or "こちらを見て短く自然に返事をする")
     exact_dialogue = json.dumps(dialogue.strip(), ensure_ascii=False)
+    reference_rule = ""
+    if reference_mode == "omni":
+        reference_rule = """<Picture 1> is the exact identity reference for the speaking character.
+Keep the same person, face, age, hairstyle, clothing, and visual style as <Picture 1> throughout the shot.
+Use the picture only as a character reference; compose the current scene described below.\n"""
+    elif reference_mode == "first_frame":
+        reference_rule = """The supplied first frame is the exact opening appearance of the speaking character.
+Continue naturally from that frame without changing her identity, face, hairstyle, clothing, or visual style.\n"""
     return f"""A cinematic Japanese visual novel scene, medium close-up, square 1:1 composition.
 Character name: {name}.
-IMMUTABLE CHARACTER AND STYLE BLOCK — preserve every detail exactly in every generated turn:
+{reference_rule}IMMUTABLE CHARACTER AND STYLE BLOCK — preserve every detail exactly in every generated turn:
 {anchor}
 The next line may change only her facial expression, gaze, or a small natural gesture. It must not change identity, facial features, hairstyle, glasses, clothing, location, lighting, color grade, or visual style.
 Current expression or small gesture: {scene}.
@@ -52,17 +67,42 @@ She speaks only Japanese. She says exactly the following Japanese dialogue and s
 Natural calm Japanese female voice, intimate conversational delivery. No English speech."""
 
 
-def build_workflow(prompt: str, seed: int, filename_prefix: str) -> dict[str, Any]:
+def build_workflow(
+    prompt: str,
+    seed: int,
+    filename_prefix: str,
+    *,
+    reference_mode: str = "none",
+    reference_image: str | None = None,
+    ref_image_size: str = "match",
+) -> dict[str, Any]:
+    if reference_mode not in REFERENCE_MODES | {"none"}:
+        raise ValueError("reference_mode must be 'omni', 'first_frame', or 'none'")
+    if reference_mode != "none" and not reference_image:
+        raise ValueError("参照画像が指定されていません")
+    if ref_image_size not in {"match", "max"}:
+        raise ValueError("ref_image_size must be 'match' or 'max'")
     model_source = ["19", 0] if USE_SOL_ATTN else ["17", 0]
+    conditioning_inputs: dict[str, Any] = {
+        "clip": ["2", 0], "vae": ["3", 0], "prompt": prompt,
+        "width": WIDTH, "height": HEIGHT, "length": FRAMES,
+    }
+    conditioning_type = "MiniMaxH3ImageToVideo"
+    if reference_mode == "omni":
+        conditioning_type = "MiniMaxH3ReferenceToVideo"
+        conditioning_inputs.update({
+            "audio_vae": ["4", 0],
+            "ref_image_size": ref_image_size,
+            "ref_images.ref_image_0": ["100", 0],
+        })
+    elif reference_mode == "first_frame":
+        conditioning_inputs["first_frame"] = ["100", 0]
     workflow = {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": MODEL, "weight_dtype": "default"}},
         "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": CLIP, "type": "minimax", "device": "default"}},
         "3": {"class_type": "VAELoader", "inputs": {"vae_name": VIDEO_VAE}},
         "4": {"class_type": "VAELoader", "inputs": {"vae_name": AUDIO_VAE}},
-        "5": {"class_type": "MiniMaxH3ImageToVideo", "inputs": {
-            "clip": ["2", 0], "vae": ["3", 0], "prompt": prompt,
-            "width": WIDTH, "height": HEIGHT, "length": FRAMES,
-        }},
+        "5": {"class_type": conditioning_type, "inputs": conditioning_inputs},
         "6": {"class_type": "RandomNoise", "inputs": {"noise_seed": seed}},
         "7": {"class_type": "BasicGuider", "inputs": {"model": model_source, "conditioning": ["5", 0]}},
         "8": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "euler"}},
@@ -92,6 +132,8 @@ def build_workflow(prompt: str, seed: int, filename_prefix: str) -> dict[str, An
             "selection.vsa_keep_percent": 10.0, "start_percent": 0.0, "end_percent": 1.0,
             "min_tokens": 12288, "sink_conditioning": "exact_kv_and_rows", "verbose": False,
         }}
+    if reference_image:
+        workflow["100"] = {"class_type": "LoadImage", "inputs": {"image": reference_image}}
     return workflow
 
 
@@ -113,19 +155,28 @@ class FastH3VideoGenerator:
         with self.opener.open(request, timeout=timeout) as response:
             return json.load(response)
 
-    def assert_ready(self) -> None:
+    def assert_ready(self, reference_mode: str = "omni") -> None:
+        if reference_mode not in REFERENCE_MODES:
+            raise ValueError("参照方式が正しくありません")
         queue = self._request_json("GET", "/queue", timeout=15)
         if queue.get("queue_running") or queue.get("queue_pending"):
             raise RuntimeError("FastH3は別の生成中です。このターンはまだ送信されていません")
         unets = self._request_json("GET", "/object_info/UNETLoader", timeout=15)
         if MODEL not in json.dumps(unets, ensure_ascii=False):
             raise RuntimeError("FastH3の4-stepモデルが見つかりません。このターンはまだ送信されていません")
+        node = "MiniMaxH3ReferenceToVideo" if reference_mode == "omni" else "MiniMaxH3ImageToVideo"
+        node_info = self._request_json("GET", "/object_info/" + node, timeout=15)
+        if node not in node_info:
+            raise RuntimeError(f"FastH3の{node}ノードが見つかりません。このターンはまだ送信されていません")
 
-    def status(self) -> dict[str, Any]:
+    def status(self, reference_mode: str = "omni") -> dict[str, Any]:
         """Return a read-only readiness summary without submitting a job."""
         try:
-            self.assert_ready()
-            return {"ok": True, "backend": "fasth3", "base_url": self.base_url}
+            self.assert_ready(reference_mode)
+            return {
+                "ok": True, "backend": "fasth3", "base_url": self.base_url,
+                "reference_mode": reference_mode,
+            }
         except Exception as exc:  # Health checks must not stop the web UI.
             return {"ok": False, "backend": "fasth3", "error": str(exc)}
 
@@ -157,6 +208,35 @@ class FastH3VideoGenerator:
                 handle.write(block)
         os.replace(partial, output)
 
+    def _upload_reference(self, path: Path, upload_name: str) -> str:
+        if not path.is_file():
+            raise ValueError("参照画像が見つかりません")
+        boundary = "----FastH3DateChat" + uuid.uuid4().hex
+        mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        prefix = (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="type"\r\n\r\ninput\r\n'
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="overwrite"\r\n\r\ntrue\r\n'
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="image"; filename="{upload_name}"\r\n'
+            f"Content-Type: {mime}\r\n\r\n"
+        ).encode("utf-8")
+        body = prefix + path.read_bytes() + f"\r\n--{boundary}--\r\n".encode("ascii")
+        request = urllib.request.Request(
+            self.base_url + "/upload/image",
+            data=body,
+            method="POST",
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        )
+        with self.opener.open(request, timeout=180) as response:
+            result = json.load(response)
+        name = str(result.get("name") or "").strip()
+        if not name:
+            raise RuntimeError("ComfyUIへ参照画像を送信できませんでした")
+        subfolder = str(result.get("subfolder") or "").strip("/\\")
+        return f"{subfolder}/{name}" if subfolder else name
+
     def _write_log(self, message_id: str, value: dict[str, Any]) -> None:
         directory = self.work_root / "video_jobs"
         directory.mkdir(parents=True, exist_ok=True)
@@ -172,17 +252,34 @@ class FastH3VideoGenerator:
         character: dict[str, Any],
         dialogue: str,
         moment: str | None,
+        reference_path: Path,
+        reference_mode: str = "omni",
+        ref_image_size: str = "match",
     ) -> dict[str, Any]:
         session_id = self._validated_id(session_id, "session id")
         message_id = self._validated_id(message_id, "message id")
-        self.assert_ready()
+        if reference_mode not in REFERENCE_MODES:
+            raise ValueError("参照方式が正しくありません")
+        self.assert_ready(reference_mode)
         started = time.time()
         seed = int(character.get("generation_seed", DEFAULT_CHARACTER_SEED))
         if not 0 <= seed < 2**63:
             raise ValueError("generation_seed must be between 0 and 2^63 - 1")
-        prompt = build_video_prompt(character, dialogue, moment)
+        prompt = build_video_prompt(character, dialogue, moment, reference_mode)
         filename_prefix = f"video/minimax-h3/fasth3-date-chat/{session_id[:8]}-{message_id[:8]}"
-        workflow = build_workflow(prompt, seed, filename_prefix)
+        suffix = reference_path.suffix.lower() if reference_path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"} else ".png"
+        uploaded_reference = self._upload_reference(
+            reference_path,
+            f"fasth3-date-chat-{session_id[:8]}{suffix}",
+        )
+        workflow = build_workflow(
+            prompt,
+            seed,
+            filename_prefix,
+            reference_mode=reference_mode,
+            reference_image=uploaded_reference,
+            ref_image_size=ref_image_size,
+        )
         response = self._request_json(
             "POST", "/prompt", {"prompt": workflow, "client_id": str(uuid.uuid4())}, timeout=60
         )

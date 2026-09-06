@@ -16,6 +16,9 @@ const ui = {
   lmModel: $("#lmModel"), lmStatus: $("#lmStatus"), testLm: $("#testLmButton"),
   h3Settings: $("#h3Settings"), h3BaseUrl: $("#h3BaseUrl"), h3Status: $("#h3Status"),
   testH3: $("#testH3Button"), settingsMessage: $("#settingsMessage"),
+  referenceImageInput: $("#referenceImageInput"), referencePreview: $("#referencePreview"),
+  referencePreviewImage: $("#referencePreviewImage"), referencePreviewText: $("#referencePreviewText"),
+  clearReference: $("#clearReferenceButton"),
   characterDescription: $("#characterDescription"), generateCharacter: $("#generateCharacterButton"),
   characterDraft: $("#characterDraft"), characterDraftName: $("#characterDraftName"),
   characterDraftTagline: $("#characterDraftTagline"), characterDraftPersonality: $("#characterDraftPersonality"),
@@ -32,6 +35,7 @@ const state = {
   awaitingPlayback: false, audioContext: null, audioSource: null, audioBuffers: new Map(),
   scenePlaybackToken: 0, revealToken: 0, sceneDialogue: "", started: false, starting: false,
   characterDraft: null, scenarioDraft: null, resultDismissed: false,
+  referenceImageId: null,
 };
 
 async function api(path, options = {}) {
@@ -73,7 +77,13 @@ function selectRadio(name, value) {
 function currentConfig() {
   return {
     provider: { type: selectedValue("providerMode") || "demo", base_url: ui.lmBaseUrl.value.trim(), model: ui.lmModel.value.trim() || null },
-    video: { mode: selectedValue("videoMode") || "none", base_url: ui.h3BaseUrl.value.trim() },
+    video: {
+      mode: selectedValue("videoMode") || "none",
+      base_url: ui.h3BaseUrl.value.trim(),
+      reference_mode: selectedValue("referenceMode") || "omni",
+      reference_image_id: state.referenceImageId,
+      ref_image_size: "match",
+    },
     character_id: document.querySelector('input[name="characterProfile"]:checked')?.value || "default",
     scenario_id: document.querySelector('input[name="scenarioProfile"]:checked')?.value || "night_chat",
   };
@@ -90,13 +100,62 @@ function restoreLocalSettings(defaults) {
   const video = saved.video || defaults.video;
   selectRadio("providerMode", provider.type || "demo");
   selectRadio("videoMode", video.mode || "none");
+  selectRadio("referenceMode", video.reference_mode || "omni");
   ui.lmBaseUrl.value = provider.base_url || defaults.provider.base_url;
   ui.lmModel.value = provider.model || "";
   ui.h3BaseUrl.value = video.base_url || defaults.video.base_url;
   return {
     character_id: saved.character_id || defaults.character_id,
     scenario_id: saved.scenario_id || defaults.scenario_id,
+    reference_image_id: video.reference_image_id || null,
   };
+}
+
+function setReferenceImage(referenceId, label = "") {
+  state.referenceImageId = referenceId || null;
+  if (state.referenceImageId) {
+    ui.referencePreviewImage.src = `/api/reference-images/${encodeURIComponent(state.referenceImageId)}`;
+    ui.referencePreviewImage.classList.remove("is-hidden");
+    ui.referencePreview.classList.remove("is-empty");
+    ui.referencePreviewText.textContent = label || "参照画像を固定して使います";
+    ui.clearReference.classList.remove("is-hidden");
+  } else {
+    ui.referencePreviewImage.removeAttribute("src");
+    ui.referencePreviewImage.classList.add("is-hidden");
+    ui.referencePreview.classList.add("is-empty");
+    ui.referencePreviewText.textContent = "PNG / JPEG / WebP・12MB以下";
+    ui.clearReference.classList.add("is-hidden");
+  }
+}
+
+async function uploadReferenceImage(file) {
+  if (!file) return;
+  if (file.size > 12 * 1024 * 1024) {
+    settingMessage("参照画像は12MB以下にしてください", true);
+    ui.referenceImageInput.value = "";
+    return;
+  }
+  settingMessage("参照画像を保存しています…");
+  ui.referenceImageInput.disabled = true;
+  try {
+    const response = await fetch("/api/reference-images", {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    let data;
+    try { data = await response.json(); }
+    catch { throw new Error(`サーバーから読めない応答が返りました (${response.status})`); }
+    if (!response.ok) throw new Error(data.error || `通信エラー (${response.status})`);
+    setReferenceImage(data.id, file.name);
+    saveLocalSettings();
+    settingMessage("この画像を全ターンのキャラクター参照に使います");
+  } catch (error) {
+    settingMessage(error.message, true);
+  } finally {
+    ui.referenceImageInput.disabled = false;
+    ui.referenceImageInput.value = "";
+  }
 }
 
 function profileChoice(kind, item, selectedId) {
@@ -311,12 +370,22 @@ function setSceneVideo(url, dialogue) {
     delete ui.sceneVideo.dataset.url;
     ui.sceneVideo.classList.add("is-hidden");
     ui.videoFallback.classList.remove("is-hidden");
+    const referenceId = state.session?.runtime?.video?.reference_image_id;
+    if (referenceId) {
+      ui.videoFallback.style.backgroundImage = `linear-gradient(180deg, rgba(5,5,8,.08), rgba(5,5,8,.42)), url("/api/reference-images/${encodeURIComponent(referenceId)}")`;
+      ui.videoFallback.classList.add("has-reference");
+    } else {
+      ui.videoFallback.style.removeProperty("background-image");
+      ui.videoFallback.classList.remove("has-reference");
+    }
     ui.sceneStatus.textContent = "返事を受信しました";
     revealAfterPause(latestAssistant(), 1000);
     return;
   }
   setSceneReady(false);
   stopSceneAudio();
+  ui.videoFallback.style.removeProperty("background-image");
+  ui.videoFallback.classList.remove("has-reference");
   ui.sceneVideo.dataset.url = url;
   ui.sceneVideo.src = url;
   ui.sceneVideo.load();
@@ -360,6 +429,11 @@ async function createSession() {
 
 async function startGame() {
   if (state.starting) return;
+  if (selectedValue("videoMode") === "fasth3" && !state.referenceImageId) {
+    settingMessage("FastH3を使うにはキャラクターの参照画像を選んでください", true);
+    ui.referenceImageInput.focus();
+    return;
+  }
   state.starting = true;
   clearError();
   settingMessage("");
@@ -431,7 +505,7 @@ async function testConnection(kind) {
   try {
     const body = kind === "lmstudio"
       ? { kind, base_url: ui.lmBaseUrl.value.trim(), model: ui.lmModel.value.trim() || null }
-      : { kind, base_url: ui.h3BaseUrl.value.trim() };
+      : { kind, base_url: ui.h3BaseUrl.value.trim(), reference_mode: selectedValue("referenceMode") || "omni" };
     const result = await api("/api/connections/test", { method: "POST", body: JSON.stringify(body) });
     output.textContent = kind === "lmstudio" ? `接続OK · ${result.model}` : "接続OK · 生成待機中";
     output.classList.add("is-ok");
@@ -516,12 +590,22 @@ async function initialize() {
     const selection = restoreLocalSettings(state.settingsData.defaults);
     renderCharacters(selection.character_id);
     renderScenarios(selection.scenario_id);
+    setReferenceImage(selection.reference_image_id);
     syncSettingVisibility();
     openSettings();
   } catch (error) { showError(error.message); }
 }
 
 document.querySelectorAll('input[name="providerMode"], input[name="videoMode"]').forEach((input) => input.addEventListener("change", syncSettingVisibility));
+document.querySelectorAll('input[name="referenceMode"]').forEach((input) => input.addEventListener("change", saveLocalSettings));
+ui.referenceImageInput.addEventListener("change", () => uploadReferenceImage(ui.referenceImageInput.files?.[0]));
+ui.clearReference.addEventListener("click", () => { setReferenceImage(null); saveLocalSettings(); settingMessage("参照画像を解除しました"); });
+ui.referencePreviewImage.addEventListener("error", () => {
+  if (!state.referenceImageId) return;
+  setReferenceImage(null);
+  saveLocalSettings();
+  settingMessage("保存済みの参照画像が見つかりません。もう一度選んでください", true);
+});
 ui.characterList.addEventListener("change", saveLocalSettings);
 ui.scenarioList.addEventListener("change", () => { updateSelectedGoal(); saveLocalSettings(); });
 ui.testLm.addEventListener("click", () => testConnection("lmstudio"));
