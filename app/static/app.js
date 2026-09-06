@@ -438,7 +438,8 @@ async function startGame() {
   clearError();
   settingMessage("");
   ui.startButton.disabled = true;
-  ui.startButton.textContent = "準備しています…";
+  ui.startButton.textContent = selectedValue("videoMode") === "fasth3"
+    ? "スタート動画を準備しています…" : "準備しています…";
   state.soundEnabled = true;
   syncSoundControl();
   try { await unlockAudio(); }

@@ -326,6 +326,24 @@ class Handler(BaseHTTPRequestHandler):
         )
         return normalize_scenario(raw)
 
+    def _generate_scene(self, session: dict[str, Any], runtime: dict[str, Any]) -> None:
+        message = session["messages"][-1]
+        visual_moment = message["visual_moment"]
+        config = runtime["video"]
+        generator = FastH3VideoGenerator(MEDIA_ROOT, WORK_ROOT, base_url=config["base_url"])
+        video = generator.generate(
+            session_id=session["id"],
+            message_id=message["id"],
+            character=session["character"],
+            dialogue=message["content"],
+            moment=visual_moment.get("summary") or session.get("scenario", {}).get("visual_context"),
+            reference_path=reference_image_path(config["reference_image_id"]),
+            reference_mode=config["reference_mode"],
+            ref_image_size=config["ref_image_size"],
+        )
+        visual_moment.update(video)
+        visual_moment["requested"] = True
+
     def do_POST(self) -> None:
         path = urlparse(self.path).path
         try:
@@ -356,12 +374,16 @@ class Handler(BaseHTTPRequestHandler):
                 session = self.service.new_session(character, scenario, runtime)
                 session["opening_video_url"] = (
                     "/media/opening.mp4"
-                    if runtime["video"]["mode"] != "fasth3"
+                    if (runtime["video"]["mode"] != "fasth3"
+                        or runtime["video"]["reference_image_id"] == "default")
                     and character.get("profile_id") == "default"
                     and scenario.get("id") == "night_chat"
                     and self.server.opening_path.is_file()  # type: ignore[attr-defined]
                     else None
                 )
+                if session["opening_video_url"] is None and runtime["video"]["mode"] == "fasth3":
+                    self._generate_scene(session, runtime)
+                    session["opening_video_url"] = session["messages"][-1]["visual_moment"]["video_url"]
                 self.service.save_session(session)
                 self._send_json(session, HTTPStatus.CREATED)
                 return
@@ -407,21 +429,7 @@ class Handler(BaseHTTPRequestHandler):
                 assistant_message = session["messages"][-1]
                 visual_moment = assistant_message["visual_moment"]
                 if runtime["video"]["mode"] == "fasth3":
-                    generator = FastH3VideoGenerator(
-                        MEDIA_ROOT, WORK_ROOT, base_url=runtime["video"]["base_url"]
-                    )
-                    video = generator.generate(
-                        session_id=session["id"],
-                        message_id=assistant_message["id"],
-                        character=session["character"],
-                        dialogue=assistant_message["content"],
-                        moment=visual_moment.get("summary"),
-                        reference_path=reference_image_path(runtime["video"]["reference_image_id"]),
-                        reference_mode=runtime["video"]["reference_mode"],
-                        ref_image_size=runtime["video"]["ref_image_size"],
-                    )
-                    visual_moment.update(video)
-                    visual_moment["requested"] = True
+                    self._generate_scene(session, runtime)
                 else:
                     visual_moment.update({
                         "requested": False,
