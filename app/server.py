@@ -52,6 +52,7 @@ REFERENCE_IMAGES_ROOT = DATA_ROOT / "reference_images"
 WORK_ROOT = Path(os.environ.get("DATE_CHAT_WORK_ROOT", str(PROJECT_ROOT / "work"))).expanduser().resolve()
 DEFAULT_CHARACTER_PATH = PROJECT_ROOT / "config" / "character.example.json"
 DEFAULT_OPENING_PATH = MEDIA_ROOT / "opening.mp4"
+DEFAULT_REFERENCE_PATH = MEDIA_ROOT / "default-character-reference.png"
 DEFAULT_LM_STUDIO_URL = "http://127.0.0.1:1234/v1"
 MAX_REFERENCE_IMAGE_BYTES = 12 * 1024 * 1024
 REFERENCE_IMAGE_EXTENSIONS = (".png", ".jpg", ".webp")
@@ -88,7 +89,9 @@ def normalize_runtime(raw: dict[str, Any], defaults: dict[str, Any]) -> dict[str
     reference_image_id = video_raw.get("reference_image_id")
     if reference_image_id in {None, ""}:
         reference_image_id = None
-    elif not isinstance(reference_image_id, str) or not re.fullmatch(r"[0-9a-f]{32}", reference_image_id):
+    elif not isinstance(reference_image_id, str) or (
+        reference_image_id != "default" and not re.fullmatch(r"[0-9a-f]{32}", reference_image_id)
+    ):
         raise ValueError("参照画像IDが正しくありません")
     ref_image_size = str(video_raw.get("ref_image_size") or defaults["video"].get("ref_image_size") or "match")
     if ref_image_size not in {"match", "max"}:
@@ -104,6 +107,10 @@ def normalize_runtime(raw: dict[str, Any], defaults: dict[str, Any]) -> dict[str
 
 
 def reference_image_path(reference_id: str) -> Path:
+    if reference_id == "default":
+        if DEFAULT_REFERENCE_PATH.is_file():
+            return DEFAULT_REFERENCE_PATH
+        raise FileNotFoundError(reference_id)
     if not re.fullmatch(r"[0-9a-f]{32}", str(reference_id or "")):
         raise ValueError("参照画像IDが正しくありません")
     for extension in REFERENCE_IMAGE_EXTENSIONS:
@@ -269,7 +276,8 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/reference-images/"):
             reference_id = path.removeprefix("/api/reference-images/")
             try:
-                self._serve_file(REFERENCE_IMAGES_ROOT, reference_image_path(reference_id).name)
+                reference_path = reference_image_path(reference_id)
+                self._serve_file(reference_path.parent, reference_path.name)
             except (FileNotFoundError, ValueError):
                 self._send_json({"error": "reference image not found"}, HTTPStatus.NOT_FOUND)
             return
@@ -475,7 +483,7 @@ def main() -> None:
             "mode": args.video_mode,
             "base_url": os.environ.get("FASTH3_BASE_URL", DEFAULT_BASE_URL),
             "reference_mode": os.environ.get("FASTH3_REFERENCE_MODE", "omni"),
-            "reference_image_id": None,
+            "reference_image_id": "default" if DEFAULT_REFERENCE_PATH.is_file() else None,
             "ref_image_size": os.environ.get("FASTH3_REF_IMAGE_SIZE", "match"),
         },
         "character_id": "default",

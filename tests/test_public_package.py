@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.server import DEFAULT_CHARACTER_PATH, DEFAULT_OPENING_PATH, create_service
+from app.server import DEFAULT_CHARACTER_PATH, DEFAULT_OPENING_PATH, DEFAULT_REFERENCE_PATH, create_service
 from tools.release_audit import audit
 
 
@@ -27,6 +27,9 @@ class PublicPackageTests(unittest.TestCase):
     def test_opening_video_is_packaged(self) -> None:
         self.assertTrue(DEFAULT_OPENING_PATH.is_file())
 
+    def test_default_square_character_reference_is_packaged(self) -> None:
+        self.assertTrue(DEFAULT_REFERENCE_PATH.is_file())
+
     def test_mobile_settings_use_the_full_viewport(self) -> None:
         html = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
         css = (ROOT / "app" / "static" / "style.css").read_text(encoding="utf-8")
@@ -45,6 +48,7 @@ class PublicPackageTests(unittest.TestCase):
         html = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
         gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
         self.assertIn('id="referenceImageInput"', html)
+        self.assertIn('id="useDefaultReferenceButton"', html)
         self.assertIn('name="referenceMode" value="omni"', html)
         self.assertIn('name="referenceMode" value="first_frame"', html)
         self.assertIn("data/reference_images/", gitignore)

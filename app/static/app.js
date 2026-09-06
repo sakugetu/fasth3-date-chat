@@ -18,7 +18,7 @@ const ui = {
   testH3: $("#testH3Button"), settingsMessage: $("#settingsMessage"),
   referenceImageInput: $("#referenceImageInput"), referencePreview: $("#referencePreview"),
   referencePreviewImage: $("#referencePreviewImage"), referencePreviewText: $("#referencePreviewText"),
-  clearReference: $("#clearReferenceButton"),
+  useDefaultReference: $("#useDefaultReferenceButton"), clearReference: $("#clearReferenceButton"),
   characterDescription: $("#characterDescription"), generateCharacter: $("#generateCharacterButton"),
   characterDraft: $("#characterDraft"), characterDraftName: $("#characterDraftName"),
   characterDraftTagline: $("#characterDraftTagline"), characterDraftPersonality: $("#characterDraftPersonality"),
@@ -590,7 +590,10 @@ async function initialize() {
     const selection = restoreLocalSettings(state.settingsData.defaults);
     renderCharacters(selection.character_id);
     renderScenarios(selection.scenario_id);
-    setReferenceImage(selection.reference_image_id);
+    setReferenceImage(
+      selection.reference_image_id,
+      selection.reference_image_id === "default" ? "過去のスタート動画から作った既定画像" : "",
+    );
     syncSettingVisibility();
     openSettings();
   } catch (error) { showError(error.message); }
@@ -599,6 +602,11 @@ async function initialize() {
 document.querySelectorAll('input[name="providerMode"], input[name="videoMode"]').forEach((input) => input.addEventListener("change", syncSettingVisibility));
 document.querySelectorAll('input[name="referenceMode"]').forEach((input) => input.addEventListener("change", saveLocalSettings));
 ui.referenceImageInput.addEventListener("change", () => uploadReferenceImage(ui.referenceImageInput.files?.[0]));
+ui.useDefaultReference.addEventListener("click", () => {
+  setReferenceImage("default", "過去のスタート動画から作った既定画像");
+  saveLocalSettings();
+  settingMessage("同梱の既定画像を全ターンのキャラクター参照に使います");
+});
 ui.clearReference.addEventListener("click", () => { setReferenceImage(null); saveLocalSettings(); settingMessage("参照画像を解除しました"); });
 ui.referencePreviewImage.addEventListener("error", () => {
   if (!state.referenceImageId) return;

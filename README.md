@@ -125,6 +125,8 @@ python -m app.server --provider lmstudio --video-mode fasth3
 
 参照画像には、会話中に出したい人物の顔、髪型、服装がよく分かるPNG、JPEG、WebP（12MB以下）を選びます。画像はこのアプリの `data/reference_images/` にローカル保存され、Git管理には入りません。ゲーム開始時はその画像を静止画として表示し、最初の選択後から各動画へ同じ画像を渡します。
 
+初期状態では、同梱の過去のスタート動画から切り出した320×320の `media/default-character-reference.png` を使います。設定画面の「既定画像」でいつでも戻せます。元の `media/opening.mp4` は変更していません。
+
 参照方法は次の二つです。
 
 | 参照方法 | 用途 |
