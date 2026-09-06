@@ -34,6 +34,8 @@ class VideoGenerationTests(unittest.TestCase):
         self.assertIn(visual_prompt, prompt)
         self.assertIn("IMMUTABLE CHARACTER AND STYLE BLOCK", prompt)
         self.assertIn("must not change identity", prompt)
+        self.assertIn("tight head-and-shoulders close-up", prompt)
+        self.assertIn("Do not use a medium shot", prompt)
 
     def test_omni_prompt_names_the_picture_reference(self) -> None:
         prompt = build_video_prompt(
@@ -49,7 +51,7 @@ class VideoGenerationTests(unittest.TestCase):
         workflow = build_workflow("テスト", 123, "video/test")
         inputs = workflow["5"]["inputs"]
         self.assertEqual((inputs["width"], inputs["height"]), (WIDTH, HEIGHT))
-        self.assertEqual((WIDTH, HEIGHT, FRAMES), (320, 320, 72))
+        self.assertEqual((WIDTH, HEIGHT, FRAMES), (320, 320, 124))
         self.assertEqual(workflow["9"]["inputs"]["steps"], 4)
         self.assertEqual(workflow["19"]["inputs"]["selection"], "VSA (FastVideo)")
         self.assertEqual(DEFAULT_CHARACTER_SEED, 986429173)

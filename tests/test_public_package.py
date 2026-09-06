@@ -42,16 +42,22 @@ class PublicPackageTests(unittest.TestCase):
         css = (ROOT / "app" / "static" / "style.css").read_text(encoding="utf-8")
         self.assertIn("width: min(980px, 100%);", css)
         self.assertNotIn("width: min(980px, 96vw);", css)
-        self.assertIn("/style.css?v=public-5", html)
+        self.assertIn("/style.css?v=public-6", html)
+        self.assertIn("/app.js?v=public-7", html)
 
     def test_reference_image_controls_are_packaged(self) -> None:
         html = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
+        javascript = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
+        css = (ROOT / "app" / "static" / "style.css").read_text(encoding="utf-8")
         gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
         self.assertIn('id="referenceImageInput"', html)
         self.assertIn('id="useDefaultReferenceButton"', html)
         self.assertIn('name="referenceMode" value="omni"', html)
         self.assertIn('name="referenceMode" value="first_frame"', html)
         self.assertIn("data/reference_images/", gitignore)
+        self.assertIn("profile-choice-image", javascript)
+        self.assertIn("/api/reference-images/", javascript)
+        self.assertIn(".profile-choice-image", css)
 
     def test_release_tree_has_no_generic_local_data(self) -> None:
         self.assertEqual(audit(ROOT, []), [])

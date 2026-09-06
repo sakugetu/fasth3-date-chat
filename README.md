@@ -147,9 +147,9 @@ python -m app.server --provider lmstudio --video-mode fasth3
 | 項目 | 値 |
 |---|---:|
 | 解像度 | 320 × 320 |
-| フレーム数 | 72 |
+| フレーム数 | 124 |
 | FPS | 24 |
-| 長さ | 約3秒 |
+| 長さ | 約5秒（124フレーム / 24fps） |
 | steps | 4 |
 | Attention | `SolAttnMiniMax` |
 
@@ -157,7 +157,7 @@ python -m app.server --provider lmstudio --video-mode fasth3
 
 ## キャラクターとシチュエーション
 
-開始画面には「澪」が既定キャラクターとして入っています。LM Studioを選ぶと、日本語の説明から別のキャラクター案を生成し、確認・編集して保存できます。
+開始画面には「澪」が既定キャラクターとして入っています。LM Studioを選ぶと、日本語の説明から別のキャラクター案を生成し、確認・編集して保存できます。`config/character.<ID>.json`と`media/<ID>-reference.png`のように同じIDの設定と参照画像を置くと、そのPCだけの画像付きキャラクターとして自動追加されます。
 
 キャラクターには次の情報が含まれます。
 

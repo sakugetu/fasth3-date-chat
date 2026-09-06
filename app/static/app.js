@@ -168,9 +168,30 @@ function profileChoice(kind, item, selectedId) {
   input.checked = item.id === selectedId;
   const content = document.createElement("span");
   content.className = kind === "scenario" ? "scenario-choice-card" : "profile-choice-card";
-  content.innerHTML = `<strong></strong><small></small>`;
-  content.querySelector("strong").textContent = item.name || item.title;
-  content.querySelector("small").textContent = item.tagline || "保存した設定";
+  const copy = document.createElement("span");
+  copy.className = "profile-choice-copy";
+  const title = document.createElement("strong");
+  title.textContent = item.name || item.title;
+  const detail = document.createElement("small");
+  detail.textContent = item.tagline || "保存した設定";
+  copy.append(title, detail);
+  if (kind === "character") {
+    if (item.reference_image_id) {
+      const image = document.createElement("img");
+      image.className = "profile-choice-image";
+      image.src = `/api/reference-images/${encodeURIComponent(item.reference_image_id)}`;
+      image.alt = `${item.name || "キャラクター"}の参照画像`;
+      image.loading = "lazy";
+      content.append(image);
+    } else {
+      const fallback = document.createElement("span");
+      fallback.className = "profile-choice-image profile-choice-image-fallback";
+      fallback.textContent = (item.name || "?").slice(0, 1);
+      fallback.setAttribute("aria-hidden", "true");
+      content.append(fallback);
+    }
+  }
+  content.append(copy);
   label.append(input, content);
   return label;
 }
@@ -180,6 +201,14 @@ function renderCharacters(selectedId = "default") {
   const characters = state.settingsData.characters || [];
   if (!characters.some((item) => item.id === selectedId)) selectedId = "default";
   characters.forEach((item) => ui.characterList.append(profileChoice("character", item, selectedId)));
+}
+
+function useBundledCharacterReference(characterId, announce = false) {
+  const character = state.settingsData?.characters?.find((item) => item.id === characterId);
+  if (!character?.reference_image_id) return;
+  const label = character.reference_image_label || `${character.name}の同梱参照画像`;
+  setReferenceImage(character.reference_image_id, label);
+  if (announce) settingMessage(`${character.name}のキャラ設定と参照画像を選びました`);
 }
 
 function updateSelectedGoal() {
@@ -615,7 +644,11 @@ ui.referencePreviewImage.addEventListener("error", () => {
   saveLocalSettings();
   settingMessage("保存済みの参照画像が見つかりません。もう一度選んでください", true);
 });
-ui.characterList.addEventListener("change", saveLocalSettings);
+ui.characterList.addEventListener("change", () => {
+  const characterId = document.querySelector('input[name="characterProfile"]:checked')?.value;
+  useBundledCharacterReference(characterId, true);
+  saveLocalSettings();
+});
 ui.scenarioList.addEventListener("change", () => { updateSelectedGoal(); saveLocalSettings(); });
 ui.testLm.addEventListener("click", () => testConnection("lmstudio"));
 ui.testH3.addEventListener("click", () => testConnection("fasth3"));

@@ -58,6 +58,38 @@ MAX_REFERENCE_IMAGE_BYTES = 12 * 1024 * 1024
 REFERENCE_IMAGE_EXTENSIONS = (".png", ".jpg", ".webp")
 
 
+def discover_local_characters() -> dict[str, dict[str, Any]]:
+    bundled: dict[str, dict[str, Any]] = {}
+    prefix = "character."
+    suffix = ".json"
+    for path in sorted((PROJECT_ROOT / "config").glob("character.*.json")):
+        if path == DEFAULT_CHARACTER_PATH:
+            continue
+        profile_id = path.name[len(prefix):-len(suffix)]
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", profile_id):
+            continue
+        reference_path = next(
+            (MEDIA_ROOT / f"{profile_id}-reference{extension}"
+             for extension in REFERENCE_IMAGE_EXTENSIONS
+             if (MEDIA_ROOT / f"{profile_id}-reference{extension}").is_file()),
+            None,
+        )
+        if reference_path is not None:
+            bundled[profile_id] = {
+                "path": path,
+                "reference_image_id": profile_id,
+                "reference_path": reference_path,
+            }
+    return bundled
+
+
+BUNDLED_CHARACTERS = discover_local_characters()
+BUNDLED_REFERENCE_PATHS = {
+    "default": DEFAULT_REFERENCE_PATH,
+    **{profile_id: item["reference_path"] for profile_id, item in BUNDLED_CHARACTERS.items()},
+}
+
+
 def clean_url(value: Any, default: str) -> str:
     text = str(value or default).strip().rstrip("/")
     parsed = urlparse(text)
@@ -90,7 +122,8 @@ def normalize_runtime(raw: dict[str, Any], defaults: dict[str, Any]) -> dict[str
     if reference_image_id in {None, ""}:
         reference_image_id = None
     elif not isinstance(reference_image_id, str) or (
-        reference_image_id != "default" and not re.fullmatch(r"[0-9a-f]{32}", reference_image_id)
+        reference_image_id not in BUNDLED_REFERENCE_PATHS
+        and not re.fullmatch(r"[0-9a-f]{32}", reference_image_id)
     ):
         raise ValueError("参照画像IDが正しくありません")
     ref_image_size = str(video_raw.get("ref_image_size") or defaults["video"].get("ref_image_size") or "match")
@@ -107,9 +140,10 @@ def normalize_runtime(raw: dict[str, Any], defaults: dict[str, Any]) -> dict[str
 
 
 def reference_image_path(reference_id: str) -> Path:
-    if reference_id == "default":
-        if DEFAULT_REFERENCE_PATH.is_file():
-            return DEFAULT_REFERENCE_PATH
+    if reference_id in BUNDLED_REFERENCE_PATHS:
+        path = BUNDLED_REFERENCE_PATHS[reference_id]
+        if path.is_file():
+            return path
         raise FileNotFoundError(reference_id)
     if not re.fullmatch(r"[0-9a-f]{32}", str(reference_id or "")):
         raise ValueError("参照画像IDが正しくありません")
@@ -217,11 +251,29 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def _settings_payload(self) -> dict[str, Any]:
-        default_character = {"id": "default", **normalize_character(self.service.character)}
+        default_character = {
+            "id": "default",
+            "builtin": True,
+            "reference_image_id": "default",
+            "reference_image_label": "過去のスタート動画から作った既定画像",
+            **normalize_character(self.service.character),
+        }
         characters = [default_character]
+        for profile_id, bundled in BUNDLED_CHARACTERS.items():
+            path = bundled["path"]
+            if not path.is_file() or not reference_image_path(bundled["reference_image_id"]).is_file():
+                continue
+            profile = normalize_character(read_json(path))
+            characters.append({
+                "id": profile_id,
+                "builtin": True,
+                "reference_image_id": bundled["reference_image_id"],
+                "reference_image_label": f"{profile.get('name') or 'キャラクター'}のローカル参照画像",
+                **profile,
+            })
         for item in self.server.character_store.list():  # type: ignore[attr-defined]
             try:
-                characters.append({"id": item["id"], **normalize_character(item)})
+                characters.append({"id": item["id"], "builtin": False, **normalize_character(item)})
             except (KeyError, ValueError, TypeError):
                 continue
         scenarios = [{"builtin": True, **item} for item in BUILTIN_SCENARIOS]
@@ -242,6 +294,11 @@ class Handler(BaseHTTPRequestHandler):
             return {"profile_id": "default", **normalize_character(self.service.character)}
         if not isinstance(profile_id, str):
             raise ValueError("キャラクターを選択してください")
+        if profile_id in BUNDLED_CHARACTERS:
+            return {
+                "profile_id": profile_id,
+                **normalize_character(read_json(BUNDLED_CHARACTERS[profile_id]["path"])),
+            }
         value = self.server.character_store.load(profile_id)  # type: ignore[attr-defined]
         return {"profile_id": profile_id, **normalize_character(value)}
 

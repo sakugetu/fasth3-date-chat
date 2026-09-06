@@ -26,7 +26,7 @@ AUDIO_VAE = os.environ.get("FASTH3_AUDIO_VAE", "minimax_h3_audio_vae_fp32.safete
 USE_SOL_ATTN = os.environ.get("FASTH3_USE_SOL_ATTN", "1").strip().lower() not in {"0", "false", "no"}
 WIDTH = 320
 HEIGHT = 320
-FRAMES = 72
+FRAMES = 124
 FPS = 24.0
 DEFAULT_CHARACTER_SEED = 986429173
 REFERENCE_MODES = {"omni", "first_frame"}
@@ -54,13 +54,14 @@ Use the picture only as a character reference; compose the current scene describ
     elif reference_mode == "first_frame":
         reference_rule = """The supplied first frame is the exact opening appearance of the speaking character.
 Continue naturally from that frame without changing her identity, face, hairstyle, clothing, or visual style.\n"""
-    return f"""A cinematic Japanese visual novel scene, medium close-up, square 1:1 composition.
+    return f"""A cinematic Japanese visual novel scene, tight head-and-shoulders close-up, square 1:1 composition.
 Character name: {name}.
 {reference_rule}IMMUTABLE CHARACTER AND STYLE BLOCK — preserve every detail exactly in every generated turn:
 {anchor}
+Her face must stay large, centered, and clearly readable, filling roughly 55 to 70 percent of the frame height. Keep both eyes, her full face, hair, glasses when present, neck, and the top of her shoulders visible. Do not use a medium shot, waist-up shot, full-body shot, distant framing, or a wide establishing shot.
 The next line may change only her facial expression, gaze, or a small natural gesture. It must not change identity, facial features, hairstyle, glasses, clothing, location, lighting, color grade, or visual style.
 Current expression or small gesture: {scene}.
-One continuous three-second shot, stable face and clothing, subtle realistic motion, no camera cut,
+One continuous five-second shot, stable face and clothing, subtle realistic motion, no camera cut,
 no on-screen text, no captions, no subtitles.
 She speaks only Japanese. She says exactly the following Japanese dialogue and says nothing else:
 {exact_dialogue}

@@ -11,10 +11,7 @@ from unittest.mock import patch
 
 from app.date_chat import ChatService, DemoProvider, SessionStore, read_json
 from app.profiles import BUILTIN_SCENARIOS, JsonProfileStore, normalize_character
-from app.server import (
-    DEFAULT_CHARACTER_PATH, DEFAULT_OPENING_PATH, DEFAULT_REFERENCE_PATH,
-    DateChatHTTPServer, Handler,
-)
+from app.server import DEFAULT_CHARACTER_PATH, DEFAULT_OPENING_PATH, DEFAULT_REFERENCE_PATH, DateChatHTTPServer, Handler
 
 
 class OpeningVideoTests(unittest.TestCase):
