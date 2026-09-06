@@ -6,6 +6,16 @@
 
 このリポジトリは完成品ではなく、会話ゲームへ改造するための最小構成です。モデル本体、会話履歴、個別に作った設定、生成動画、生成ログは同梱していません。
 
+## サンプル画面
+
+### 開始時の設定
+
+![FastH3 Date Chatの設定画面](docs/images/settings-screen.png)
+
+### 動画と二択で進む会話
+
+![FastH3 Date Chatの会話画面](docs/images/conversation-screen.png)
+
 ## 最初に：利用モードごとの設定
 
 `run_full.bat` を実行するだけで、LM StudioやFastH3自体が自動導入されるわけではありません。デモ以外を使う場合は、先に外部アプリとモデルを用意してください。
