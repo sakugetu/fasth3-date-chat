@@ -251,4 +251,6 @@ python tools/release_audit.py . --forbid "internal-name"
 
 ## ライセンス
 
-現時点ではコードのライセンスを指定していません。第三者へ利用・改変・再配布を許可する公開へ移る前に、目的に合うライセンスを選び、`LICENSE` を追加してください。外部モデルとソフトウェアには、それぞれ別の利用条件があります。
+このリポジトリのコードは [MIT License](LICENSE) で提供します。
+
+LM Studio、ComfyUI、FastH3のモデル、カスタムノードなどの外部コンポーネントにはMIT Licenseは適用されません。それぞれの配布元が定めるライセンスと利用条件を確認してください。詳しくは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。
